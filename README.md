@@ -1,8 +1,48 @@
 # flink-cdc-ingestion
 
-CDC ingestion pipeline: PostgreSQL → Paimon lakehouse using Apache Flink CDC.
+Real-time Change Data Capture pipeline that streams changes from a PostgreSQL e-commerce database into an Apache Paimon lakehouse using Apache Flink CDC.
 
-Mirrors the architecture of the company `flink-cdc` repo.
+## Architecture
+
+```
+┌─────────────────┐       ┌──────────────────┐       ┌─────────────────────┐
+│   PostgreSQL    │       │   Flink CDC      │       │   Paimon Lakehouse  │
+│   (ecommerce)   │──WAL──│   Pipeline       │──────▶│   (filesystem)      │
+│                 │       │                  │       │                     │
+│ • orders        │       │ • Snapshot phase │       │ • orders            │
+│ • order_items   │       │ • Streaming phase│       │ • order_items       │
+│ • customers     │       │ • Checkpointing  │       │ • customers         │
+│ • products      │       │                  │       │ • products          │
+│ • payments      │       │                  │       │ • payments          │
+│ • inventory     │       │                  │       │ • inventory_events  │
+│ • shipments     │       │                  │       │ • shipments         │
+└─────────────────┘       └──────────────────┘       └─────────────────────┘
+                                                              │
+                                                              ▼
+                                                     flink-streaming-transforms
+                                                     (downstream consumer)
+```
+
+### How It Works
+
+1. **PostgreSQL** runs with `wal_level=logical` enabled, which allows Flink CDC to read the Write-Ahead Log
+2. **Flink CDC** creates a replication slot and subscribes to changes via a publication
+3. On startup, it performs a **snapshot** (full table scan) of all configured tables
+4. After snapshot completes, it switches to **streaming mode** — reading only new INSERT/UPDATE/DELETE events from the WAL in real-time
+5. Events are written to **Paimon** tables (a lakehouse format optimized for streaming writes and changelog tracking)
+6. **Checkpointing** runs every 30s to ensure exactly-once delivery — if the job crashes, it resumes from the last checkpoint
+
+### Pipeline Definition
+
+The pipeline is defined declaratively in a YAML file (`resources/yaml_files/ecommerce-pipeline.yaml`):
+
+```yaml
+source:  PostgreSQL (CDC connector with replication slot)
+    ↓
+transform:  Optional projections/filters on the CDC stream
+    ↓
+sink:  Paimon (filesystem catalog, bucketed tables, changelog-producer: input)
+```
 
 ## Quick Start
 
@@ -17,7 +57,8 @@ docker exec -it postgres-source psql -U cdc_user -d ecommerce -c "SELECT count(*
 # 3. Open Flink UI
 open http://localhost:8081
 
-# 4. Generate test data
+# 4. Generate test data (simulates real-time order activity)
+chmod +x generate-data.sh
 ./generate-data.sh 10
 
 # 5. Stop everything
@@ -29,45 +70,26 @@ docker compose down -v
 ```
 flink-cdc-ingestion/
 ├── infra/
-│   ├── docker-compose.yml      # Postgres + Flink cluster
-│   ├── init-db.sql             # Ecommerce schema + seed data
-│   └── generate-data.sh        # Simulates real-time order activity
+│   ├── docker-compose.yml          # Postgres (CDC-enabled) + Flink cluster
+│   ├── init-db.sql                 # E-commerce schema + seed data
+│   ├── generate-data.sh            # Data generator script
+│   └── jars/                       # Custom JARs for Flink cluster
 ├── src/main/
-│   ├── java/com/learning/cdc/  # Your code goes here
+│   ├── java/com/learning/cdc/      # Application code
 │   └── resources/
-│       └── yaml_files/         # Pipeline definitions (source → sink)
+│       ├── yaml_files/             # CDC pipeline definitions
+│       └── log4j.properties
 └── pom.xml
 ```
 
-## Learning Exercises
+## Key Concepts
 
-### Phase 1: Get Data Flowing
-- [ ] Write the main class that loads the YAML and runs the pipeline
-- [ ] Verify data appears in Paimon warehouse (`/opt/paimon/warehouse`)
-- [ ] Run `generate-data.sh` and watch CDC events flow in real-time
-
-### Phase 2: Expand the Pipeline
-- [ ] Add all ecommerce tables to the YAML (orders, order_items, payments, etc.)
-- [ ] Add `metadata.list: op_ts` to capture operation timestamps
-- [ ] Configure per-table bucket keys (like `bucket-key` in company YAML)
-
-### Phase 3: Understand CDC Internals
-- [ ] Check the replication slot: `SELECT * FROM pg_replication_slots;`
-- [ ] Monitor WAL lag: `SELECT pg_current_wal_lsn();`
-- [ ] Try `scan.startup.mode: latest-offset` vs `initial` — what changes?
-- [ ] ALTER a table in Postgres — what happens to the pipeline?
-
-### Phase 4: Production Patterns
-- [ ] Add structured logging (mirror CloudWatchLogger pattern)
-- [ ] Add config management (dev vs prod YAML files)
-- [ ] Handle password externalization (mirror the `passwordref` pattern)
-
-## Key Concepts to Understand
-
-| Concept | What it means | Company repo reference |
-|---------|--------------|----------------------|
-| Replication slot | Postgres reserves WAL for your CDC reader | `slot.name` in YAML |
-| Publication | Which tables Postgres publishes changes for | `debezium.publication.name` |
-| Snapshot phase | Initial full table scan before streaming | `scan.startup.mode: initial` |
-| Changelog mode | How updates are encoded (all vs upsert) | `changelog-mode: upsert` |
-| Checkpointing | Periodic state snapshots for fault tolerance | `env.enableCheckpointing()` |
+| Concept | Description |
+|---------|-------------|
+| WAL (Write-Ahead Log) | Postgres transaction log — CDC reads changes from here |
+| Replication Slot | Postgres reserves WAL segments so the CDC reader doesn't miss events |
+| Publication | Defines which tables Postgres publishes changes for |
+| Snapshot Phase | Initial full table scan before switching to streaming |
+| Changelog Mode | How updates are encoded — `upsert` (INSERT only) vs `all` (INSERT + UPDATE_BEFORE + UPDATE_AFTER + DELETE) |
+| Checkpointing | Periodic state snapshots enabling exactly-once semantics and crash recovery |
+| Paimon | Lakehouse table format with native changelog support, optimized for streaming writes |
