@@ -1,0 +1,52 @@
+# ============================================================
+# Exercise 1: Basic CDC Pipeline
+# Postgres (ecommerce tables) -> Paimon (local filesystem)
+#
+# This is the equivalent of vdp_cdc_ned_programs_stage.yaml
+# in the company repo, but simplified for learning.
+# ============================================================
+
+source:
+  type: postgres
+  name: Ecommerce Postgres Source
+  hostname: localhost
+  port: 5432
+  username: cdc_user
+  password: cdc_password
+  # TODO: Add the tables you want to capture
+  # Format: database.schema.table
+  # Start with just 2-3 tables, then add more
+  tables: ecommerce.ecommerce.orders,ecommerce.ecommerce.customers
+  slot.name: ecommerce_cdc_slot
+  decoding.plugin.name: pgoutput
+  debezium.publication.autocreate.mode: filtered
+  debezium.publication.name: ecommerce_cdc_publication
+  # scan.startup.mode controls what happens when the job starts:
+  #   "initial" = snapshot all existing data first, then stream changes (like your company repo)
+  #   "latest-offset" = skip snapshot, only capture new changes
+  scan.startup.mode: initial
+  scan.snapshot.fetch.size: 1024
+  scan.incremental.snapshot.chunk.size: 8096
+
+# TODO Exercise 2: Add transforms
+# Transforms let you modify data in-flight (add columns, filter, etc.)
+# Your company repo adds op_ts and lsn_id metadata to every record:
+#   transform:
+#     - source-table: \.*.\.* 
+#       projection: \*,op_ts
+
+sink:
+  type: paimon
+  name: Paimon Sink
+  catalog.properties.metastore: filesystem
+  catalog.properties.warehouse: /opt/paimon/warehouse
+  # These control how Paimon stores data:
+  table.properties.changelog-producer: input    # changelog derived from CDC input
+  table.properties.bucket: 4                    # number of data files per partition
+  # TODO Exercise 3: Experiment with these settings
+  # table.properties.snapshot.time-retained: '1 d'
+  # table.properties.changelog.time-retained: '2 d'
+
+pipeline:
+  name: ecommerce-cdc-local
+  parallelism: 2

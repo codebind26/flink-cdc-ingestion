@@ -1,0 +1,41 @@
+# ============================================================
+# CDC Pipeline: PostgreSQL -> Paimon
+# Mirrors: vdp_cdc_ned_programs_stage.yaml from company repo
+#
+# EXERCISE: Start with just 2-3 tables, then add more as you learn
+# ============================================================
+
+source:
+  type: postgres
+  name: Postgres Ecommerce Source
+  hostname: localhost
+  port: 5432
+  username: cdc_user
+  password: cdc_password
+  # TODO: Start with just orders and customers, then expand
+  tables: ecommerce.ecommerce.orders,ecommerce.ecommerce.customers
+  slot.name: ecommerce_cdc_slot
+  decoding.plugin.name: pgoutput
+  debezium.publication.autocreate.mode: filtered
+  debezium.publication.name: ecommerce_cdc_publication
+  scan.startup.mode: initial
+  scan.snapshot.fetch.size: 1024
+  scan.incremental.snapshot.chunk.size: 8096
+  connect.timeout: 30s
+  heartbeat.interval: 15s
+
+transform:
+  - source-table: \.*.\.*
+    projection: \*
+
+sink:
+  type: paimon
+  name: Paimon Sink
+  catalog.properties.metastore: filesystem
+  catalog.properties.warehouse: /opt/paimon/warehouse
+  table.properties.changelog-producer: input
+  table.properties.bucket: 4
+
+pipeline:
+  name: ecommerce-cdc-ingestion
+  parallelism: 2

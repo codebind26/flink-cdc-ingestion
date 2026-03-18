@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  # ============================================================
+  # PostgreSQL - Source database (CDC enabled)
+  # This is your "NED database" equivalent
+  # ============================================================
+  postgres:
+    image: postgres:15
+    container_name: postgres-source
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: cdc_user
+      POSTGRES_PASSWORD: cdc_password
+      POSTGRES_DB: ecommerce
+    command:
+      - "postgres"
+      - "-c" 
+      - "wal_level=logical"           # Required for CDC - enables logical decoding
+      - "-c"
+      - "max_replication_slots=10"    # Flink CDC needs replication slots
+      - "-c"
+      - "max_wal_senders=10"          # Allows multiple CDC readers
+    volumes:
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cdc_user -d ecommerce"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # Flink JobManager - The "brain" that coordinates jobs
+  # Equivalent to Spark Driver
+  # ============================================================
+  jobmanager:
+    image: flink:1.20.1-java11
+    container_name: flink-jobmanager
+    ports:
+      - "8081:8081"   # Flink Web UI - bookmark this!
+    command: jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        state.backend: rocksdb
+        state.checkpoints.dir: file:///opt/flink/checkpoints
+        state.savepoints.dir: file:///opt/flink/savepoints
+        execution.checkpointing.interval: 30s
+    volumes:
+      - flink-checkpoints:/opt/flink/checkpoints
+      - flink-savepoints:/opt/flink/savepoints
+      - paimon-warehouse:/opt/paimon/warehouse
+      - ./jars:/opt/flink/lib/custom
+
+  # ============================================================
+  # Flink TaskManager - The "workers" that execute tasks
+  # Equivalent to Spark Executors
+  # ============================================================
+  taskmanager:
+    image: flink:1.20.1-java11
+    container_name: flink-taskmanager
+    depends_on:
+      - jobmanager
+    command: taskmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 4
+        state.backend: rocksdb
+        state.checkpoints.dir: file:///opt/flink/checkpoints
+        state.savepoints.dir: file:///opt/flink/savepoints
+        execution.checkpointing.interval: 30s
+    volumes:
+      - flink-checkpoints:/opt/flink/checkpoints
+      - flink-savepoints:/opt/flink/savepoints
+      - paimon-warehouse:/opt/paimon/warehouse
+      - ./jars:/opt/flink/lib/custom
+
+volumes:
+  postgres-data:
+  flink-checkpoints:
+  flink-savepoints:
+  paimon-warehouse:
