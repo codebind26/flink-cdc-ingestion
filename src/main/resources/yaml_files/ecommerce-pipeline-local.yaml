@@ -9,7 +9,7 @@
 source:
   type: postgres
   name: Ecommerce Postgres Source
-  hostname: localhost
+  hostname: 127.0.0.1
   port: 5432
   username: cdc_user
   password: cdc_password
@@ -17,7 +17,7 @@ source:
   # Format: database.schema.table
   # Start with just 2-3 tables, then add more
   tables: ecommerce.ecommerce.orders,ecommerce.ecommerce.customers
-  slot.name: ecommerce_cdc_slot
+  slot.name: flink_cdc_slot_local
   decoding.plugin.name: pgoutput
   debezium.publication.autocreate.mode: filtered
   debezium.publication.name: ecommerce_cdc_publication
@@ -39,7 +39,7 @@ sink:
   type: paimon
   name: Paimon Sink
   catalog.properties.metastore: filesystem
-  catalog.properties.warehouse: /opt/paimon/warehouse
+  catalog.properties.warehouse: /tmp/paimon-warehouse
   # These control how Paimon stores data:
   table.properties.changelog-producer: input    # changelog derived from CDC input
   table.properties.bucket: 4                    # number of data files per partition

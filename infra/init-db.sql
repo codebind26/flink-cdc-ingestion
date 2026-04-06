@@ -144,3 +144,39 @@ INSERT INTO ecommerce.products (product_name, category, subcategory, price, stoc
 ('USB-C Hub', 'Electronics', 'Accessories', 59.99, 150),
 ('Data Engineering Guide', 'Books', 'Programming', 54.99, 80),
 ('Winter Jacket', 'Clothing', 'Outerwear', 199.99, 40);
+
+-- Seed orders so snapshot phase has fact data
+INSERT INTO ecommerce.orders (customer_id, order_status, total_amount, shipping_address) VALUES
+(1, 'DELIVERED', 1329.98, '123 Main St, Newark, NJ'),
+(2, 'SHIPPED',    89.99, '456 Oak Ave, Dallas, TX'),
+(3, 'CONFIRMED', 109.98, '789 Pine Rd, LA, CA'),
+(4, 'PENDING',   199.99, '321 Elm St, Newark, NJ'),
+(5, 'DELIVERED',  59.99, '654 Maple Dr, Dallas, TX');
+
+INSERT INTO ecommerce.order_items (order_id, product_id, quantity, unit_price) VALUES
+(1, 1, 1, 1299.99),
+(1, 2, 1,   29.99),
+(2, 4, 1,   89.99),
+(3, 3, 1,   49.99),
+(3, 6, 1,   59.99),
+(4, 8, 1,  199.99),
+(5, 6, 1,   59.99);
+
+INSERT INTO ecommerce.payments (order_id, payment_method, payment_status, amount) VALUES
+(1, 'CREDIT_CARD',   'COMPLETED', 1329.98),
+(2, 'PAYPAL',        'COMPLETED',   89.99),
+(3, 'DEBIT_CARD',    'COMPLETED',  109.98),
+(4, 'BANK_TRANSFER', 'PENDING',    199.99),
+(5, 'CREDIT_CARD',   'COMPLETED',   59.99);
+
+INSERT INTO ecommerce.inventory_events (product_id, warehouse_id, event_type, quantity_change) VALUES
+(1, 1, 'SALE', -1),
+(2, 1, 'SALE', -1),
+(4, 3, 'SALE', -1),
+(8, 1, 'SALE', -1),
+(1, 1, 'RESTOCK', 20);
+
+INSERT INTO ecommerce.shipments (order_id, warehouse_id, carrier, tracking_number, shipment_status, shipped_at, delivered_at) VALUES
+(1, 1, 'UPS',   'TRK10001', 'DELIVERED',  NOW() - INTERVAL '5 days', NOW() - INTERVAL '2 days'),
+(2, 3, 'FEDEX', 'TRK10002', 'IN_TRANSIT', NOW() - INTERVAL '1 day', NULL),
+(5, 2, 'USPS',  'TRK10003', 'DELIVERED',  NOW() - INTERVAL '3 days', NOW() - INTERVAL '1 day');

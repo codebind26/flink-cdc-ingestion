@@ -15,8 +15,8 @@
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
         <flink.version>1.20.1</flink.version>
-        <flink.cdc.version>3.3.0</flink.cdc.version>
-        <paimon.version>1.0.1</paimon.version>
+        <flink.cdc.version>3.5.0</flink.cdc.version>
+        <paimon.version>1.2.0</paimon.version>
         <log4j.version>2.24.3</log4j.version>
     </properties>
 
@@ -43,25 +43,29 @@
         <!-- ==================== -->
         <!-- Postgres CDC Source  -->
         <!-- ==================== -->
+        <!-- Bundled into uber JAR (not a separate plugin) like the company project -->
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-cdc-pipeline-connector-postgres</artifactId>
-            <version>${flink.cdc.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.flink</groupId>
-            <artifactId>flink-sql-connector-postgres-cdc</artifactId>
             <version>${flink.cdc.version}</version>
         </dependency>
 
         <!-- ==================== -->
         <!-- Paimon Sink          -->
         <!-- ==================== -->
+        <!-- Bundled into uber JAR (not a separate plugin) like the company project.
+             The connector fat JAR bundles its own paimon classes, but we exclude them
+             via shade plugin filter and use paimon-flink-1.20 instead (single copy of Options). -->
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-cdc-pipeline-connector-paimon</artifactId>
             <version>${flink.cdc.version}</version>
         </dependency>
+
+        <!-- Paimon runtime - provides the SINGLE copy of org.apache.paimon.* classes.
+             The company project uses paimon-bundle:1.4-SNAPSHOT (provided scope) because
+             Amazon Managed Service for Apache Flink has it on the classpath.
+             For local execution, we include it as compile scope so it's in our uber JAR. -->
         <dependency>
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-flink-1.20</artifactId>
@@ -89,6 +93,29 @@
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-connector-base</artifactId>
+            <version>${flink.version}</version>
+        </dependency>
+
+        <!-- ==================== -->
+        <!-- Hadoop (needed by Paimon CatalogContext) -->
+        <!-- ==================== -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-common</artifactId>
+            <version>3.4.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-hdfs-client</artifactId>
+            <version>3.4.1</version>
+        </dependency>
+
+        <!-- ==================== -->
+        <!-- Flink Web UI          -->
+        <!-- ==================== -->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-runtime-web</artifactId>
             <version>${flink.version}</version>
         </dependency>
 
@@ -133,6 +160,19 @@
                                         <exclude>META-INF/*.DSA</exclude>
                                         <exclude>META-INF/*.RSA</exclude>
                                         <exclude>META-INF/*.SF</exclude>
+                                        <exclude>log4j.properties</exclude>
+                                        <exclude>hive-log4j2.properties</exclude>
+                                    </excludes>
+                                </filter>
+                                <!-- KEY FIX: Exclude ALL bundled paimon classes from the connector
+                                     fat JAR. We use paimon-flink-1.20 as the single source of
+                                     org.apache.paimon.* classes. This prevents the ClassCastException
+                                     on Options that happens when two copies exist. -->
+                                <filter>
+                                    <artifact>org.apache.flink:flink-cdc-pipeline-connector-paimon</artifact>
+                                    <excludes>
+                                        <exclude>org/apache/paimon/**</exclude>
+                                        <exclude>paimon-codegen/**</exclude>
                                     </excludes>
                                 </filter>
                             </filters>
